@@ -28,7 +28,7 @@ class ModelSelector(object):
         self.random_state = random_state
         self.verbose = verbose
 
-    def select(self):
+    def select(self): 
         raise NotImplementedError
 
     def base_model(self, num_states):
@@ -77,7 +77,23 @@ class SelectorBIC(ModelSelector):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+        lowest_BIC = float('inf')
+        best_model = None
+        for i in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                model = self.base_model(i)
+                logL = model.score(self.X, self.lengths)
+                logN = np.log(len(self.X))
+                p = i ** 2 + 2 * model.n_features * i - 1
+                #Bayesian Information Criteria （BIC）
+                BIC = -2 * logL + p * logN
+                #select model with lowest BIC score
+                if BIC < lowest_BIC:
+                    lowest_BIC = BIC
+                    best_model = model
+            except:
+                continue
+        return best_model if best_model else self.base_model(self.n_constant)
 
 
 class SelectorDIC(ModelSelector):
@@ -87,23 +103,57 @@ class SelectorDIC(ModelSelector):
     Document Analysis and Recognition, 2003. Proceedings. Seventh International Conference on. IEEE, 2003.
     http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.58.6208&rep=rep1&type=pdf
     https://pdfs.semanticscholar.org/ed3d/7c4a5f607201f3848d4c02dd9ba17c791fc2.pdf
-    DIC = log(P(X(i)) - 1/(M-1)SUM(log(P(X(all but i))
+    DIC = log(P(X(i))) - alpha/(M-1)SUM(log(P(X(all but i))) with the regularizer alpha is taken to be 1
     '''
-
+    
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
         # TODO implement model selection based on DIC scores
-        raise NotImplementedError
+        highest_DIC = float('-inf')
+        best_model = None
+        M = self.max_n_components - self.min_n_components
+        for i in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                model = self.base_model(i)
+                #collect logP(Xj|Til,thetail) over j!=i as scores
+                scores = [model.score(*self.hwords[word]) for word in self.hwords.keys() if word != self.this_word]
+                #Discriminative Information Criterion (DIC)
+                DIC = model.score(self.X, self.lengths) - np.sum(scores)/(M-1)
+                #select model with highest DIC score
+                if DIC > highest_DIC:
+                    highest_DIC = DIC
+                    best_model = model
+            except:
+                continue
+        return best_model if best_model else self.base_model(self.n_constant)
+        
 
 
 class SelectorCV(ModelSelector):
     ''' select best model based on average log Likelihood of cross-validation folds
-
     '''
-
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
-
+        
         # TODO implement model selection using CV
-        raise NotImplementedError
+        highest_cv = float('-inf')
+        best_model = None
+        for i in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                model = self.base_model(i)
+                scores = []
+                #select 2fold cross validation
+                for train, test in KFold(n_splits=2)(self.sequences):
+                    self.X, self.lengths = combine_sequences(train, self.sequences)
+                    train_model = self.base_model(i)
+                    X, lengths = combine_sequences(test, self.sequences)
+                    scores.append(train_model.score(X, lengths))
+                cv = np.mean(scores)
+                #select model with highest CV score
+                if cv > highest_cv:
+                    highest_cv = cv
+                    best_model = model
+            except:
+                continue
+        return best_model if best_model else self.base_model(self.n_constant)
